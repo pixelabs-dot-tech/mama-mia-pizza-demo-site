@@ -1,0 +1,12 @@
+{
+ "name": "Mama Mia Pizza",
+ "short_name": "Mama Mia",
+ "start_url": "./",
+ "display": "standalone",
+ "background_color": "#fff4e2",
+ "theme_color": "#d7262e",
+ "icons": [
+  { "src": "assets/img/icon-192.png", "sizes": "192x192", "type": "image/png" },
+  { "src": "assets/img/icon-512.png", "sizes": "512x512", "type": "image/png" }
+ ]
+}
