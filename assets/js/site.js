@@ -490,13 +490,13 @@
 
     function dishHTML(it, k) {
       var plate = it.img
-        ? '<span class="dish__plate"><img src="assets/img/menu/' + it.img + '-t.webp" alt="" width="200" height="200" loading="lazy" decoding="async"></span>'
+        ? '<button type="button" class="dish__plate" aria-label="See a photo of ' + esc(it.name) + '"><img src="assets/img/dishes/' + it.img + '-t.webp" alt="" width="240" height="240" loading="lazy" decoding="async"></button>'
         : '<span class="dish__plate dish__plate--icon"><svg class="ico" aria-hidden="true"><use href="#i-' + (it.icon || DEFAULT_ICON[it.s] || 'pizza') + '"/></svg></span>';
       var tags = (it.tags || []).map(function (t) { return '<span class="tag tag--' + t + '">' + (t === 'hot' ? '<svg class="ico" aria-hidden="true"><use href="#i-flame"/></svg>' : '') + (TAGS[t] || t) + '</span>'; }).join('');
       var sizes = it.sizes ? '<ul class="sizes" aria-label="Sizes and prices">' + it.sizes.map(function (z) {
         return '<li data-size="' + esc(z[0]) + '"' + (sel === z[0] ? ' class="is-on"' : '') + '><span>' + esc(z[0]) + '</span><b>' + money(z[1]) + '</b></li>';
       }).join('') + '</ul>' : '';
-      return '<article class="dish" style="--i:' + k + '"' + (it.img ? ' data-peek="assets/img/menu/' + it.img + '.webp"' : '') + '>' + plate +
+      return '<article class="dish' + (it.img ? ' dish--photo' : '') + '" style="--i:' + k + '" data-k="' + k + '"' + (it.img ? ' data-peek="assets/img/dishes/' + it.img + '.webp"' : '') + '>' + plate +
         '<div class="dish__main"><div class="dish__top"><h3>' + esc(it.name) + '</h3><span class="dish__dots" aria-hidden="true"></span>' +
         '<span class="dish__price" data-k="' + k + '">' + priceHTML(it) + '</span></div>' +
         (it.desc ? '<p>' + esc(it.desc) + '</p>' : '') + sizes + (tags ? '<div class="dish__tags">' + tags + '</div>' : '') + '</div></article>';
@@ -554,16 +554,24 @@
 
     /* photo that follows the pointer over dishes (mouse only) */
     var peek = null, qx, qy, qr, lastX = 0;
+    /* keep the hover photo beside the pointer and inside the window */
+    function spot(e) {
+      var w = peek.offsetWidth || 276, h = peek.offsetHeight || 215;
+      var x = e.clientX + 28, y = e.clientY - h / 2;
+      if (x + w > window.innerWidth - 12) x = e.clientX - 28 - w;
+      y = Math.max(12, Math.min(window.innerHeight - h - 12, y));
+      return [x, y];
+    }
     function bindPeek() {
       if (!FINE || !hasGsap || RM) return;
       if (!peek) {
         peek = document.createElement('div'); peek.className = 'peek'; peek.setAttribute('aria-hidden', 'true');
-        peek.innerHTML = '<img alt="">'; document.body.appendChild(peek);
+        peek.innerHTML = '<div class="peek__in"><img alt=""></div>'; document.body.appendChild(peek);
         qx = G.quickTo(peek, 'x', { duration: 0.55, ease: 'power3' });
         qy = G.quickTo(peek, 'y', { duration: 0.55, ease: 'power3' });
         qr = G.quickTo(peek, 'rotation', { duration: 0.6, ease: 'power3' });
         list.addEventListener('pointermove', function (e) {
-          qx(e.clientX + 28); qy(e.clientY - 110);
+          var p = spot(e); qx(p[0]); qy(p[1]);
           qr(Math.max(-12, Math.min(12, (e.clientX - lastX) * 0.6)));
           lastX = e.clientX;
         });
@@ -573,12 +581,97 @@
           if (e.pointerType !== 'mouse') return;
           var img = $('img', peek), src = d.getAttribute('data-peek');
           if (img.getAttribute('src') !== src) img.src = src;
-          G.set(peek, { x: e.clientX + 28, y: e.clientY - 110 }); lastX = e.clientX;
+          var p = spot(e); G.set(peek, { x: p[0], y: p[1] }); lastX = e.clientX;
           peek.classList.add('is-on');
         });
         d.addEventListener('pointerleave', function () { peek.classList.remove('is-on'); qr(0); });
       });
     }
+
+    /* photo viewer: tap a dish to see its photo big, with prev/next through the tab */
+    var view = null, vIdx = 0;
+    function photoItems() { return shown.filter(function (it) { return it.img; }); }
+    function sectionLabel(id) { var s = M.sections.filter(function (x) { return x.id === id; })[0]; return s ? (s.title || s.label) : ''; }
+    function buildView() {
+      view = document.createElement('dialog');
+      view.className = 'dview'; view.setAttribute('aria-labelledby', 'dview-name');
+      view.innerHTML =
+        '<div class="dview__card">' +
+          '<button class="dview__x" type="button" aria-label="Close" data-dv-close><svg class="ico" aria-hidden="true"><use href="#i-x"/></svg></button>' +
+          '<figure class="dview__media"><img alt="" data-dv-img></figure>' +
+          '<div class="dview__body">' +
+            '<p class="dview__cat" data-dv-cat></p>' +
+            '<h3 class="dview__name" id="dview-name" data-dv-name></h3>' +
+            '<p class="dview__desc" data-dv-desc></p>' +
+            '<div class="dview__price" data-dv-price></div>' +
+            '<div class="dview__tags" data-dv-tags></div>' +
+            '<div class="dview__row">' +
+              '<a class="btn btn--red" href="' + CONFIG.jeetak + '" target="_blank" rel="noopener" data-dv-order>Order on ' + jkMark() + '</a>' +
+              '<div class="dview__nav"><button type="button" aria-label="Previous dish" data-dv-prev><svg class="ico" aria-hidden="true"><use href="#i-left"/></svg></button>' +
+              '<span data-dv-count></span><button type="button" aria-label="Next dish" data-dv-next><svg class="ico" aria-hidden="true"><use href="#i-right"/></svg></button></div>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+      document.body.appendChild(view);
+      view.addEventListener('click', function (e) {
+        if (e.target === view || e.target.closest('[data-dv-close]')) closeView();
+        else if (e.target.closest('[data-dv-prev]')) fill(vIdx - 1);
+        else if (e.target.closest('[data-dv-next]')) fill(vIdx + 1);
+      });
+      view.addEventListener('keydown', function (e) {
+        if (e.key === 'ArrowLeft') fill(vIdx - 1);
+        else if (e.key === 'ArrowRight') fill(vIdx + 1);
+      });
+      view.addEventListener('close', function () { if (lenis) lenis.start(); document.documentElement.classList.remove('is-viewing'); });
+      var sx = null;
+      view.addEventListener('touchstart', function (e) { sx = e.touches[0].clientX; }, { passive: true });
+      view.addEventListener('touchend', function (e) {
+        if (sx === null) return;
+        var dx = e.changedTouches[0].clientX - sx; sx = null;
+        if (Math.abs(dx) > 60) fill(vIdx + (dx < 0 ? 1 : -1));
+      });
+    }
+    function fill(i) {
+      var items = photoItems();
+      if (!items.length) return;
+      vIdx = (i + items.length) % items.length;
+      var it = items[vIdx], img = $('[data-dv-img]', view);
+      img.classList.remove('is-in');
+      img.onload = function () { img.classList.add('is-in'); };
+      img.alt = it.name;
+      img.src = 'assets/img/dishes/' + it.img + '.webp';
+      if (img.complete && img.naturalWidth) img.classList.add('is-in');
+      $('[data-dv-cat]', view).textContent = sectionLabel(it.s);
+      $('[data-dv-name]', view).textContent = it.name;
+      $('[data-dv-desc]', view).textContent = it.desc || '';
+      $('[data-dv-price]', view).innerHTML = it.sizes
+        ? '<ul class="sizes" aria-label="Sizes and prices">' + it.sizes.map(function (z) { return '<li><span>' + esc(z[0]) + '</span><b>' + money(z[1]) + '</b></li>'; }).join('') + '</ul>'
+        : (typeof it.price === 'number' ? '<b>' + money(it.price) + '</b>' : '');
+      $('[data-dv-tags]', view).innerHTML = (it.tags || []).map(function (t) { return '<span class="tag tag--' + t + '">' + (TAGS[t] || t) + '</span>'; }).join('');
+      $('[data-dv-order]', view).setAttribute('aria-label', 'Order ' + it.name + ' on jeetak');
+      $('[data-dv-count]', view).textContent = (vIdx + 1) + ' / ' + items.length;
+      var many = items.length > 1;
+      $$('[data-dv-prev], [data-dv-next]', view).forEach(function (b) { b.hidden = !many; });
+    }
+    function openView(it) {
+      if (!view) buildView();
+      fill(photoItems().indexOf(it));
+      if (typeof view.showModal === 'function') { if (!view.open) view.showModal(); } else view.setAttribute('open', '');
+      document.documentElement.classList.add('is-viewing');
+      if (lenis) lenis.stop();
+      if (peek) peek.classList.remove('is-on');
+    }
+    function closeView() {
+      if (typeof view.close === 'function') view.close();
+      else { view.removeAttribute('open'); if (lenis) lenis.start(); document.documentElement.classList.remove('is-viewing'); }
+    }
+    list.addEventListener('click', function (e) {
+      if (e.target.closest('a, .slicer')) return;
+      var d = e.target.closest('.dish--photo');
+      if (!d) return;
+      var it = shown[+d.getAttribute('data-k')];
+      if (it && it.img) openView(it);
+    });
 
     var start = sections.filter(function (s) { return s.id === 'pizzas'; })[0] || sections[0];
     if (sections.length) show(start.id, false);
